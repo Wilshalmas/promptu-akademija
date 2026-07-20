@@ -504,9 +504,9 @@ function friendlyApiError(status){
   return 'API klaida ('+status+').';
 }
 
-async function callAI(systemPrompt, userPrompt){
+async function callAI(systemPrompt, userPrompt, providerOverride){
   const s = getSettings();
-  const prov = s.activeProvider;
+  const prov = providerOverride || s.activeProvider;
   const key = s.keys[prov];
   const model = s.models[prov];
   if(!key){ throw new Error('NOKEY'); }
@@ -723,6 +723,16 @@ function body(){
   return '';
 }
 
+function providerPickerHtml(){
+  const s = getSettings();
+  const configured = Object.keys(PROVIDERS).filter(p=>s.keys[p]);
+  if(configured.length===0) return '';
+  const opts = configured.map(p=>
+    `<option value="${p}" ${p===s.activeProvider?'selected':''}>${PROVIDERS[p].label.split(' ')[0]}</option>`
+  ).join('');
+  return `<div class="hint" style="padding:0 14px 12px;">Naudojamas teikėjas: <select id="activeProviderPicker" style="display:inline-block;width:auto;padding:4px 8px;font-size:12.5px;">${opts}</select></div>`;
+}
+
 function homeView(){
   const progress = getProgress();
   const total = totalModules();
@@ -824,6 +834,7 @@ function moduleView(){
         <button class="btn btn-primary" data-action="run-prompt">▶ Vykdyti per API</button>
         <button class="btn btn-ghost" data-action="grade-prompt">★ Gauti atsiliepimą</button>
       </div>
+      ${providerPickerHtml()}
       <div id="responseArea"></div>
     </div>
     <div class="grade-block" id="gradeBlock"></div>
@@ -882,6 +893,14 @@ function bindEvents(){
       localStorage.setItem('aipa_draft_'+route.modId, ta.value);
     });
   }
+  const pp = document.getElementById('activeProviderPicker');
+  if(pp){
+    pp.addEventListener('change', ()=>{
+      const s = getSettings();
+      s.activeProvider = pp.value;
+      saveSettings(s);
+    });
+  }
 }
 
 function onAction(e){
@@ -928,55 +947,70 @@ function onAction(e){
   else if(action==='complete-mod'){ markComplete(el.dataset.mod); render(); }
 }
 
-async function runPrompt(){
+function providersWithKeys(){
   const s = getSettings();
+  const rest = Object.keys(PROVIDERS).filter(p => p!==s.activeProvider && s.keys[p]);
+  const ordered = s.keys[s.activeProvider] ? [s.activeProvider, ...rest] : rest;
+  return ordered;
+}
+
+async function runPrompt(){
   const input = document.getElementById('promptInput').value.trim();
   if(!input) return;
   const area = document.getElementById('responseArea');
-  if(!s.keys[s.activeProvider]){
+  const candidates = providersWithKeys();
+  if(candidates.length===0){
     navigator.clipboard.writeText(input).catch(()=>{});
-    area.innerHTML = `<div class="response-block"><span class="lbl">Nereikia API rakto</span><div class="response-text">Promptas nukopijuotas į iškarpinę. Naudokite mygtukus aukščiau, kad atidarytumėte nemokamą ChatGPT, Claude, Gemini ar Perplexity pokalbį, ir įklijuokite ten. Jei norite, kad programėlė vykdytų automatiškai, pridėkite savo API raktą nustatymuose (⚙️) — tada šis mygtukas veiks tiesiogiai.</div></div>`;
+    area.innerHTML = `<div class="response-block"><span class="lbl">Nereikia API rakto</span><div class="response-text">Promptas nukopijuotas į iškarpinę. Naudokite mygtukus aukščiau, kad atidarytumėte nemokamą ChatGPT, Claude, Gemini, Perplexity ar HuggingChat pokalbį, ir įklijuokite ten. Jei norite, kad programėlė vykdytų automatiškai, pridėkite savo API raktą nustatymuose (⚙️) — tada šis mygtukas veiks tiesiogiai.</div></div>`;
     return;
   }
   area.innerHTML = `<div class="response-block"><span class="lbl">AI atsakymas</span><div class="response-text">Kraunama...</div></div>`;
-  try{
-    const text = await callAI('Tu esi naudingas asistentas. Atsakyk aiškiai ir glaustai.', input);
-    area.innerHTML = `<div class="response-block"><span class="lbl">AI atsakymas</span><div class="response-text">${escapeHtml(text)}</div><button class="btn btn-ghost" id="copyRespBtn" style="margin-top:10px;">Kopijuoti atsakymą</button></div>`;
-    const copyBtn = document.getElementById('copyRespBtn');
-    if(copyBtn) copyBtn.addEventListener('click', ()=>{
-      navigator.clipboard.writeText(text).then(()=>{
-        copyBtn.textContent = 'Nukopijuota ✓';
-        setTimeout(()=>{ copyBtn.textContent = 'Kopijuoti atsakymą'; }, 1800);
-      }).catch(()=>{});
-    });
-  }catch(err){
-    area.innerHTML = `<div class="response-block"><span class="lbl">Klaida</span><div class="response-text">${escapeHtml(err.message||'Nepavyko gauti atsakymo.')}</div></div>`;
+  let lastErr;
+  for(const prov of candidates){
+    try{
+      const text = await callAI('Tu esi naudingas asistentas. Atsakyk aiškiai ir glaustai.', input, prov);
+      const usedNote = prov!==candidates[0] ? ` (per ${PROVIDERS[prov].label.split(' ')[0]}, nes pirmasis teikėjas neveikė)` : '';
+      area.innerHTML = `<div class="response-block"><span class="lbl">AI atsakymas${usedNote}</span><div class="response-text">${escapeHtml(text)}</div><button class="btn btn-ghost" id="copyRespBtn" style="margin-top:10px;">Kopijuoti atsakymą</button></div>`;
+      const copyBtn = document.getElementById('copyRespBtn');
+      if(copyBtn) copyBtn.addEventListener('click', ()=>{
+        navigator.clipboard.writeText(text).then(()=>{
+          copyBtn.textContent = 'Nukopijuota ✓';
+          setTimeout(()=>{ copyBtn.textContent = 'Kopijuoti atsakymą'; }, 1800);
+        }).catch(()=>{});
+      });
+      return;
+    }catch(err){ lastErr = err; }
   }
+  area.innerHTML = `<div class="response-block"><span class="lbl">Klaida</span><div class="response-text">${escapeHtml((lastErr&&lastErr.message)||'Nepavyko gauti atsakymo.')} ${candidates.length>1?'(išbandyti visi '+candidates.length+' sukonfigūruoti teikėjai)':''}</div></div>`;
 }
 
 async function gradePrompt(){
-  const s = getSettings();
   const input = document.getElementById('promptInput').value.trim();
   if(!input) return;
   const block = document.getElementById('gradeBlock');
   block.className = 'grade-block show';
   const sys = 'Tu esi prompt inžinerijos mokytojas. Vertink pateiktą vartotojo promptą pagal aiškumą, kontekstą, konkretumą ir tikslo apibrėžtumą. Atsakyk TIK šiuo formatu, lietuviškai: pirma eilutė "BALAS: X/10", tada 2-3 sakiniai konstruktyvaus atsiliepimo.';
-  if(!s.keys[s.activeProvider]){
+  const candidates = providersWithKeys();
+  if(candidates.length===0){
     const evalPrompt = sys + '\n\nVertinamas promptas:\n"""\n' + input + '\n"""';
     navigator.clipboard.writeText(evalPrompt).catch(()=>{});
-    block.innerHTML = `<div class="response-text">Vertinimo užklausa nukopijuota į iškarpinę. Įklijuokite ją į nemokamą ChatGPT/Claude/Gemini pokalbį (mygtukai aukščiau) — gausite balą ir atsiliepimą be jokių API kaštų.</div>`;
+    block.innerHTML = `<div class="response-text">Vertinimo užklausa nukopijuota į iškarpinę. Įklijuokite ją į nemokamą ChatGPT/Claude/Gemini/HuggingChat pokalbį (mygtukai aukščiau) — gausite balą ir atsiliepimą be jokių API kaštų.</div>`;
     return;
   }
   block.innerHTML = `<div class="response-text">Vertinama...</div>`;
-  try{
-    const text = await callAI(sys, input);
-    const scoreMatch = text.match(/BALAS:\s*(\d+)\s*\/\s*10/i);
-    const score = scoreMatch ? scoreMatch[1] : '–';
-    const feedback = text.replace(/BALAS:\s*\d+\s*\/\s*10/i,'').trim();
-    block.innerHTML = `<div class="grade-score">${score}<span>/10</span></div><div class="grade-feedback">${escapeHtml(feedback)}</div>`;
-  }catch(err){
-    block.innerHTML = `<div class="response-text">${escapeHtml(err.message||'Nepavyko gauti atsiliepimo.')}</div>`;
+  let lastErr;
+  for(const prov of candidates){
+    try{
+      const text = await callAI(sys, input, prov);
+      const scoreMatch = text.match(/BALAS:\s*(\d+)\s*\/\s*10/i);
+      const score = scoreMatch ? scoreMatch[1] : '–';
+      const feedback = text.replace(/BALAS:\s*\d+\s*\/\s*10/i,'').trim();
+      const usedNote = prov!==candidates[0] ? ` <span style="font-size:11px;color:var(--ink-dim);">(per ${PROVIDERS[prov].label.split(' ')[0]})</span>` : '';
+      block.innerHTML = `<div class="grade-score">${score}<span>/10</span></div>${usedNote}<div class="grade-feedback">${escapeHtml(feedback)}</div>`;
+      return;
+    }catch(err){ lastErr = err; }
   }
+  block.innerHTML = `<div class="response-text">${escapeHtml((lastErr&&lastErr.message)||'Nepavyko gauti atsiliepimo.')} ${candidates.length>1?'(išbandyti visi '+candidates.length+' sukonfigūruoti teikėjai)':''}</div>`;
 }
 
 function escapeHtml(str){
