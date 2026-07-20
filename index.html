@@ -168,6 +168,15 @@
   }
   textarea.prompt-in::placeholder{color:#5A5568;}
   .console-actions{display:flex;gap:8px;padding:0 14px 14px;flex-wrap:wrap;}
+  .quick-open{padding:0 14px 14px;border-bottom:1px solid var(--line);margin-bottom:14px;}
+  .qo-label{display:block;font-size:11px;color:var(--ink-dim);margin-bottom:8px;}
+  .qo-row{display:flex;gap:8px;flex-wrap:wrap;}
+  .qo-btn{
+    border:1px solid var(--line);background:var(--card);color:var(--ink);
+    border-radius:8px;padding:8px 12px;font-size:12.5px;font-weight:600;cursor:pointer;
+    font-family:'Inter',sans-serif;
+  }
+  .qo-btn:active{background:var(--card-hi);}
   .btn{
     border:none;border-radius:10px;padding:10px 16px;font-size:13.5px;font-weight:600;
     cursor:pointer;font-family:'Inter',sans-serif;
@@ -749,8 +758,17 @@ function moduleView(){
     <div class="console">
       <div class="console-head"><span class="dot"></span> jūsų promptas</div>
       <textarea class="prompt-in mono" id="promptInput" placeholder="Rašykite savo promptą čia...">${escapeHtml(localStorage.getItem('aipa_draft_'+mod.id)||'')}</textarea>
+      <div class="quick-open">
+        <span class="qo-label">Nemokamai: nukopijuos promptą ir atidarys pokalbį</span>
+        <div class="qo-row">
+          <button class="qo-btn" data-action="open-app" data-url="https://chat.openai.com">ChatGPT ↗</button>
+          <button class="qo-btn" data-action="open-app" data-url="https://claude.ai/new">Claude ↗</button>
+          <button class="qo-btn" data-action="open-app" data-url="https://gemini.google.com/app">Gemini ↗</button>
+          <button class="qo-btn" data-action="open-app" data-url="https://www.perplexity.ai">Perplexity ↗</button>
+        </div>
+      </div>
       <div class="console-actions">
-        <button class="btn btn-primary" data-action="run-prompt">▶ Vykdyti promptą</button>
+        <button class="btn btn-primary" data-action="run-prompt">▶ Vykdyti per API</button>
         <button class="btn btn-ghost" data-action="grade-prompt">★ Gauti atsiliepimą</button>
       </div>
       <div id="responseArea"></div>
@@ -776,8 +794,8 @@ function settingsModal(){
   return `
   <div class="modal-back" data-action="close-settings">
     <div class="modal" onclick="event.stopPropagation()">
-      <h2>AI prieigos nustatymai</h2>
-      <div class="sub">Raktas saugomas tik jūsų telefone, niekur nesiunčiamas.</div>
+      <h2>AI prieigos nustatymai (nebūtina)</h2>
+      <div class="sub">Programėlę galite naudoti visiškai nemokamai su savo esama ChatGPT/Claude/Gemini paskyra — tiesiog kopijuokite promptą mygtukais pamokoje. Raktą pridėkite tik jei norite, kad programėlė vykdytų promptus automatiškai (tada mokate pagal API teikėjo tarifus). Raktas saugomas tik jūsų telefone, niekur nesiunčiamas.</div>
       <div class="prov-tabs">${tabs}</div>
       <label class="field-lbl">API raktas — ${PROVIDERS[prov].label}</label>
       <input type="password" id="apiKeyInput" placeholder="sk-..." value="${s.keys[prov]||''}">
@@ -839,6 +857,15 @@ function onAction(e){
       settingsOpen=false; render();
     }
   }
+  else if(action==='open-app'){
+    const input = document.getElementById('promptInput');
+    const text = input ? input.value.trim() : '';
+    if(text) navigator.clipboard.writeText(text).catch(()=>{});
+    window.open(el.dataset.url, '_blank');
+    const original = el.textContent;
+    el.textContent = 'Nukopijuota ✓';
+    setTimeout(()=>{ el.textContent = original; }, 1600);
+  }
   else if(action==='run-prompt') runPrompt();
   else if(action==='grade-prompt') gradePrompt();
   else if(action==='complete-mod'){ markComplete(el.dataset.mod); render(); }
@@ -846,10 +873,14 @@ function onAction(e){
 
 async function runPrompt(){
   const s = getSettings();
-  if(!s.keys[s.activeProvider]){ settingsOpen=true; render(); return; }
   const input = document.getElementById('promptInput').value.trim();
   if(!input) return;
   const area = document.getElementById('responseArea');
+  if(!s.keys[s.activeProvider]){
+    navigator.clipboard.writeText(input).catch(()=>{});
+    area.innerHTML = `<div class="response-block"><span class="lbl">Nereikia API rakto</span><div class="response-text">Promptas nukopijuotas į iškarpinę. Naudokite mygtukus aukščiau, kad atidarytumėte nemokamą ChatGPT, Claude, Gemini ar Perplexity pokalbį, ir įklijuokite ten. Jei norite, kad programėlė vykdytų automatiškai, pridėkite savo API raktą nustatymuose (⚙️) — tada šis mygtukas veiks tiesiogiai.</div></div>`;
+    return;
+  }
   area.innerHTML = `<div class="response-block"><span class="lbl">AI atsakymas</span><div class="response-text">Kraunama...</div></div>`;
   try{
     const text = await callAI('Tu esi naudingas asistentas. Atsakyk aiškiai ir glaustai.', input);
@@ -868,13 +899,18 @@ async function runPrompt(){
 
 async function gradePrompt(){
   const s = getSettings();
-  if(!s.keys[s.activeProvider]){ settingsOpen=true; render(); return; }
   const input = document.getElementById('promptInput').value.trim();
   if(!input) return;
   const block = document.getElementById('gradeBlock');
   block.className = 'grade-block show';
-  block.innerHTML = `<div class="response-text">Vertinama...</div>`;
   const sys = 'Tu esi prompt inžinerijos mokytojas. Vertink pateiktą vartotojo promptą pagal aiškumą, kontekstą, konkretumą ir tikslo apibrėžtumą. Atsakyk TIK šiuo formatu, lietuviškai: pirma eilutė "BALAS: X/10", tada 2-3 sakiniai konstruktyvaus atsiliepimo.';
+  if(!s.keys[s.activeProvider]){
+    const evalPrompt = sys + '\n\nVertinamas promptas:\n"""\n' + input + '\n"""';
+    navigator.clipboard.writeText(evalPrompt).catch(()=>{});
+    block.innerHTML = `<div class="response-text">Vertinimo užklausa nukopijuota į iškarpinę. Įklijuokite ją į nemokamą ChatGPT/Claude/Gemini pokalbį (mygtukai aukščiau) — gausite balą ir atsiliepimą be jokių API kaštų.</div>`;
+    return;
+  }
+  block.innerHTML = `<div class="response-text">Vertinama...</div>`;
   try{
     const text = await callAI(sys, input);
     const scoreMatch = text.match(/BALAS:\s*(\d+)\s*\/\s*10/i);
