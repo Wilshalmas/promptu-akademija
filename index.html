@@ -475,6 +475,12 @@ const PROVIDERS = {
     label:'Perplexity',
     models:['sonar','sonar-pro','sonar-reasoning'],
     keyHint:'API raktą rasite perplexity.ai/settings/api.'
+  },
+  openrouter:{
+    label:'OpenRouter (nemokami: Llama, Qwen, Mistral, Gemma)',
+    models:['meta-llama/llama-3.3-70b-instruct:free','qwen/qwen3-next-80b-a3b-instruct:free','google/gemma-4-31b-it:free','mistralai/mistral-7b-instruct:free'],
+    keyHint:'Nemokamas raktas: openrouter.ai/keys. Laisvų modelių (žymėti :free) sąrašas keičiasi — dabartinį sąrašą žr. openrouter.ai/models?max_price=0. Modelio lauką galite laisvai perrašyti.',
+    customModel:true
   }
 };
 
@@ -555,6 +561,25 @@ async function callAI(systemPrompt, userPrompt){
     const data = await res.json();
     return data.candidates[0].content.parts.map(p=>p.text||'').join('');
   }
+
+  if(prov === 'openrouter'){
+    const res = await fetch('https://openrouter.ai/api/v1/chat/completions',{
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'Authorization':'Bearer '+key,
+        'X-Title':'Promptu Akademija'
+      },
+      body:JSON.stringify({
+        model,
+        messages:[{role:'system',content:systemPrompt},{role:'user',content:userPrompt}],
+        max_tokens:700
+      })
+    });
+    if(!res.ok) throw new Error(friendlyApiError(res.status));
+    const data = await res.json();
+    return data.choices[0].message.content;
+  }
 }
 
 /* ---------- Storage ---------- */
@@ -564,8 +589,8 @@ const LS_PROGRESS = 'aipa_progress_v1';
 function defaultSettings(){
   return {
     activeProvider:'openai',
-    keys:{openai:'',anthropic:'',gemini:'',perplexity:''},
-    models:{openai:'gpt-4o-mini',anthropic:'claude-haiku-4-5',gemini:'gemini-2.0-flash',perplexity:'sonar'}
+    keys:{openai:'',anthropic:'',gemini:'',perplexity:'',openrouter:''},
+    models:{openai:'gpt-4o-mini',anthropic:'claude-haiku-4-5',gemini:'gemini-2.0-flash',perplexity:'sonar',openrouter:'meta-llama/llama-3.3-70b-instruct:free'}
   };
 }
 function getSettings(){
@@ -765,6 +790,7 @@ function moduleView(){
           <button class="qo-btn" data-action="open-app" data-url="https://claude.ai/new">Claude ↗</button>
           <button class="qo-btn" data-action="open-app" data-url="https://gemini.google.com/app">Gemini ↗</button>
           <button class="qo-btn" data-action="open-app" data-url="https://www.perplexity.ai">Perplexity ↗</button>
+          <button class="qo-btn" data-action="open-app" data-url="https://huggingface.co/chat">HuggingChat (Llama/Qwen/Mistral/Gemma) ↗</button>
         </div>
       </div>
       <div class="console-actions">
@@ -791,17 +817,21 @@ function settingsModal(){
   const modelOpts = PROVIDERS[prov].models.map(m=>
     `<option value="${m}" ${m===s.models[prov]?'selected':''}>${m}</option>`
   ).join('');
+  const modelField = PROVIDERS[prov].customModel
+    ? `<input type="text" id="modelSelect" list="orModelList" value="${s.models[prov]||PROVIDERS[prov].models[0]}" placeholder="pvz. meta-llama/llama-3.3-70b-instruct:free">
+       <datalist id="orModelList">${PROVIDERS[prov].models.map(m=>`<option value="${m}">`).join('')}</datalist>`
+    : `<select id="modelSelect">${modelOpts}</select>`;
   return `
   <div class="modal-back" data-action="close-settings">
     <div class="modal" onclick="event.stopPropagation()">
       <h2>AI prieigos nustatymai (nebūtina)</h2>
-      <div class="sub">Programėlę galite naudoti visiškai nemokamai su savo esama ChatGPT/Claude/Gemini paskyra — tiesiog kopijuokite promptą mygtukais pamokoje. Raktą pridėkite tik jei norite, kad programėlė vykdytų promptus automatiškai (tada mokate pagal API teikėjo tarifus). Raktas saugomas tik jūsų telefone, niekur nesiunčiamas.</div>
+      <div class="sub">Programėlę galite naudoti visiškai nemokamai su savo esama ChatGPT/Claude/Gemini paskyra — tiesiog kopijuokite promptą mygtukais pamokoje. Raktą pridėkite tik jei norite, kad programėlė vykdytų promptus automatiškai (tada mokate pagal API teikėjo tarifus, nebent naudojate nemokamus OpenRouter modelius). Raktas saugomas tik jūsų telefone, niekur nesiunčiamas.</div>
       <div class="prov-tabs">${tabs}</div>
       <label class="field-lbl">API raktas — ${PROVIDERS[prov].label}</label>
       <input type="password" id="apiKeyInput" placeholder="sk-..." value="${s.keys[prov]||''}">
       <div class="hint">${PROVIDERS[prov].keyHint}</div>
       <label class="field-lbl">Modelis</label>
-      <select id="modelSelect">${modelOpts}</select>
+      ${modelField}
       <div class="modal-actions">
         <button class="btn btn-ghost" data-action="close-settings">Atšaukti</button>
         <button class="btn btn-primary" data-action="save-settings">Išsaugoti</button>
