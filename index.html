@@ -459,27 +459,39 @@ const PROVIDERS = {
   openai:{
     label:'OpenAI (ChatGPT)',
     models:['gpt-4o-mini','gpt-4o','gpt-4.1-mini'],
-    keyHint:'API raktą rasite platform.openai.com → API keys.'
+    keyHint:'API raktą rasite platform.openai.com → API keys.',
+    keyPlaceholder:'sk-...'
   },
   anthropic:{
     label:'Anthropic (Claude)',
     models:['claude-sonnet-4-5','claude-haiku-4-5'],
-    keyHint:'API raktą rasite console.anthropic.com → API Keys.'
+    keyHint:'API raktą rasite console.anthropic.com → API Keys.',
+    keyPlaceholder:'sk-ant-...'
   },
   gemini:{
     label:'Google (Gemini)',
     models:['gemini-2.0-flash','gemini-1.5-flash'],
-    keyHint:'API raktą rasite aistudio.google.com → Get API key.'
+    keyHint:'API raktą rasite aistudio.google.com → Get API key.',
+    keyPlaceholder:'AIza...'
   },
   perplexity:{
     label:'Perplexity',
     models:['sonar','sonar-pro','sonar-reasoning'],
-    keyHint:'API raktą rasite perplexity.ai/settings/api.'
+    keyHint:'API raktą rasite perplexity.ai/settings/api.',
+    keyPlaceholder:'pplx-...'
   },
   openrouter:{
     label:'OpenRouter (nemokami: Llama, Qwen, Mistral, Gemma)',
     models:['meta-llama/llama-3.3-70b-instruct:free','qwen/qwen3-next-80b-a3b-instruct:free','google/gemma-4-31b-it:free','mistralai/mistral-7b-instruct:free'],
     keyHint:'Nemokamas raktas: openrouter.ai/keys. Laisvų modelių (žymėti :free) sąrašas keičiasi — dabartinį sąrašą žr. openrouter.ai/models?max_price=0. Modelio lauką galite laisvai perrašyti.',
+    keyPlaceholder:'sk-or-...',
+    customModel:true
+  },
+  huggingface:{
+    label:'Hugging Face (Llama, Qwen, Mistral, Gemma)',
+    models:['meta-llama/Llama-3.3-70B-Instruct','Qwen/Qwen2.5-72B-Instruct','mistralai/Mistral-7B-Instruct-v0.3','google/gemma-2-9b-it'],
+    keyHint:'huggingface.co → Settings → Access Tokens → New token → tipas "Fine-grained" → įjunkite "Make calls to Inference Providers". Raktas prasideda hf_...',
+    keyPlaceholder:'hf_...',
     customModel:true
   }
 };
@@ -580,6 +592,21 @@ async function callAI(systemPrompt, userPrompt){
     const data = await res.json();
     return data.choices[0].message.content;
   }
+
+  if(prov === 'huggingface'){
+    const res = await fetch('https://router.huggingface.co/v1/chat/completions',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
+      body:JSON.stringify({
+        model,
+        messages:[{role:'system',content:systemPrompt},{role:'user',content:userPrompt}],
+        max_tokens:700
+      })
+    });
+    if(!res.ok) throw new Error(friendlyApiError(res.status));
+    const data = await res.json();
+    return data.choices[0].message.content;
+  }
 }
 
 /* ---------- Storage ---------- */
@@ -589,8 +616,8 @@ const LS_PROGRESS = 'aipa_progress_v1';
 function defaultSettings(){
   return {
     activeProvider:'openai',
-    keys:{openai:'',anthropic:'',gemini:'',perplexity:'',openrouter:''},
-    models:{openai:'gpt-4o-mini',anthropic:'claude-haiku-4-5',gemini:'gemini-2.0-flash',perplexity:'sonar',openrouter:'meta-llama/llama-3.3-70b-instruct:free'}
+    keys:{openai:'',anthropic:'',gemini:'',perplexity:'',openrouter:'',huggingface:''},
+    models:{openai:'gpt-4o-mini',anthropic:'claude-haiku-4-5',gemini:'gemini-2.0-flash',perplexity:'sonar',openrouter:'meta-llama/llama-3.3-70b-instruct:free',huggingface:'meta-llama/Llama-3.3-70B-Instruct'}
   };
 }
 function getSettings(){
@@ -828,7 +855,7 @@ function settingsModal(){
       <div class="sub">Programėlę galite naudoti visiškai nemokamai su savo esama ChatGPT/Claude/Gemini paskyra — tiesiog kopijuokite promptą mygtukais pamokoje. Raktą pridėkite tik jei norite, kad programėlė vykdytų promptus automatiškai (tada mokate pagal API teikėjo tarifus, nebent naudojate nemokamus OpenRouter modelius). Raktas saugomas tik jūsų telefone, niekur nesiunčiamas.</div>
       <div class="prov-tabs">${tabs}</div>
       <label class="field-lbl">API raktas — ${PROVIDERS[prov].label}</label>
-      <input type="password" id="apiKeyInput" placeholder="sk-..." value="${s.keys[prov]||''}">
+      <input type="password" id="apiKeyInput" placeholder="${PROVIDERS[prov].keyPlaceholder||'sk-...'}" value="${s.keys[prov]||''}">
       <div class="hint">${PROVIDERS[prov].keyHint}</div>
       <label class="field-lbl">Modelis</label>
       ${modelField}
